@@ -8,10 +8,12 @@ Evaluates rendered video files against production broadcast standards and motion
   G3: End-Card Discipline (Picture-unchanged end hold <= 1.4s; final shot <= 25% of total film duration)
   G4: Single Hero Focus (Single focal point verification)
   G5: Anti-Slop Check (Page chrome, HUD labels, counters, timecodes, fake decks)
-  AUDIO: ITU-R BS.1770 / EBU R128 Loudness (-14.0 LUFS ± 1.0, True Peak <= -1.0 dBTP)
+  AUDIO: ITU-R BS.1770 / EBU R128 Loudness (default -14.0 LUFS ± 1.0, True Peak <= -1.0 dBTP;
+         change with --target-lufs, --lufs-tolerance, --max-true-peak, e.g. -23 for broadcast)
 
 Usage:
   python audit_render_gates.py <video_file> [--expect-duration S] [--expect-audio] [--out-report gates.json] [--strict]
+                                [--target-lufs -14] [--lufs-tolerance 1.0] [--max-true-peak -1.0]
 """
 
 import argparse
@@ -33,6 +35,9 @@ def parse_args():
     parser.add_argument("--expect-audio", action="store_true", default=True, help="Enforce audio stream presence and non-silence.")
     parser.add_argument("--out-report", default=None, help="Path to write JSON gates report.")
     parser.add_argument("--hold-warn", type=float, default=1.4, help="Max allowed static end hold in seconds (default 1.4s).")
+    parser.add_argument("--target-lufs", type=float, default=-14.0, help="Integrated loudness target in LUFS (default -14.0 for web/social; use -23 for EBU R128 broadcast).")
+    parser.add_argument("--lufs-tolerance", type=float, default=1.0, help="Allowed distance from --target-lufs in LU (default 1.0).")
+    parser.add_argument("--max-true-peak", type=float, default=-1.0, help="True peak ceiling in dBTP (default -1.0).")
     parser.add_argument("--strict", action="store_true", help="Exit code 3 if any gate fails.")
     return parser.parse_args()
 
@@ -196,12 +201,13 @@ def main():
         audio_details = "Not measured: loudness measurement unavailable (ffmpeg missing or no loudness summary)."
     else:
         audio_pass = True
-        if lufs < -15.5 or lufs > -12.5:
+        lo, hi = args.target_lufs - args.lufs_tolerance, args.target_lufs + args.lufs_tolerance
+        if lufs < lo or lufs > hi:
             audio_pass = False
-            audio_reasons.append(f"Loudness {lufs:.2f} LUFS outside target range [-15.5, -12.5].")
-        if tp is not None and tp > -0.8:
+            audio_reasons.append(f"Loudness {lufs:.2f} LUFS outside target range [{lo:.1f}, {hi:.1f}].")
+        if tp is not None and tp > args.max_true_peak:
             audio_pass = False
-            audio_reasons.append(f"True peak {tp:.2f} dBTP exceeds ceiling of -0.8 dBTP.")
+            audio_reasons.append(f"True peak {tp:.2f} dBTP exceeds ceiling of {args.max_true_peak:.1f} dBTP.")
         audio_status = "pass" if audio_pass else "fail"
         tp_str = f"{tp:.2f} dBTP" if tp is not None else "N/A"
         audio_details = "; ".join(audio_reasons) if audio_reasons else f"Compliant: {lufs:.2f} LUFS, Peak {tp_str}."

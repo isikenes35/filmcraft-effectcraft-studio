@@ -175,16 +175,9 @@ def main():
         g0_pass = False
         g0_reasons.append("Audio stream missing.")
 
-    # 2. Gate G2: Dead Frames (< 3 consecutive motionless frames)
-    diffs, max_empty = analyze_motion_frames(args.video)
-    if diffs is None:
-        g2_pass = None
-        g2_reason = "Not measured: ffmpeg is needed to decode frames."
-    else:
-        g2_pass = max_empty <= 3
-        g2_reason = f"Max consecutive frozen frames: {max_empty} (threshold: <= 3)."
+    diffs, _ = analyze_motion_frames(args.video)
 
-    # 3. Gate G3: End-Card Hold Discipline
+    # 3. Gate G3: End-Card Hold Discipline (measured first, so G2 can skip the end hold)
     trailing_frozen_frames = 0
     for d in reversed(diffs or []):
         if d < 0.35: trailing_frozen_frames += 1
@@ -196,6 +189,19 @@ def main():
     else:
         g3_pass = end_hold_sec <= args.hold_warn
         g3_reason = f"End hold duration: {end_hold_sec:.2f}s (max allowed: {args.hold_warn:.2f}s)."
+
+    # 2. Gate G2: Dead Frames (no run of > 3 motionless frames before the end hold, which G3 judges)
+    if diffs is None:
+        g2_pass = None
+        g2_reason = "Not measured: ffmpeg is needed to decode frames."
+    else:
+        body = diffs[1:len(diffs) - trailing_frozen_frames]  # diffs[0] is the first frame, not a change
+        max_empty = cur = 0
+        for d in body:
+            cur = cur + 1 if d < 0.25 else 0
+            max_empty = max(max_empty, cur)
+        g2_pass = max_empty <= 3
+        g2_reason = f"Max consecutive frozen frames before the end hold: {max_empty} (threshold: <= 3)."
 
     # 4. AUDIO: ITU-R BS.1770 / EBU R128 Loudness
     lufs, tp, lra = measure_loudness(args.video)

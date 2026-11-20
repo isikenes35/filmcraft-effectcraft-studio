@@ -189,16 +189,22 @@ def main():
 
     # 4. AUDIO: ITU-R BS.1770 / EBU R128 Loudness
     lufs, tp, lra = measure_loudness(args.video)
-    audio_pass = True
     audio_reasons = []
-    if lufs is not None:
+    if lufs is None:
+        audio_pass = None
+        audio_status = "not_measured"
+        audio_details = "Not measured: loudness measurement unavailable (ffmpeg missing or no loudness summary)."
+    else:
+        audio_pass = True
         if lufs < -15.5 or lufs > -12.5:
             audio_pass = False
-            audio_reasons.append(f"Loudness {lufs:.2f} LUFS outside target range [-15.0, -13.0].")
-    if tp is not None:
-        if tp > -0.8:
+            audio_reasons.append(f"Loudness {lufs:.2f} LUFS outside target range [-15.5, -12.5].")
+        if tp is not None and tp > -0.8:
             audio_pass = False
-            audio_reasons.append(f"True peak {tp:.2f} dBTP exceeds ceiling of -1.0 dBTP.")
+            audio_reasons.append(f"True peak {tp:.2f} dBTP exceeds ceiling of -0.8 dBTP.")
+        audio_status = "pass" if audio_pass else "fail"
+        tp_str = f"{tp:.2f} dBTP" if tp is not None else "N/A"
+        audio_details = "; ".join(audio_reasons) if audio_reasons else f"Compliant: {lufs:.2f} LUFS, Peak {tp_str}."
 
     report = {
         "file": args.video,
@@ -208,52 +214,84 @@ def main():
         "probe_backend": info["source"],
         "gates": {
             "G0_render_health": {
+                "status": "pass" if g0_pass else "fail",
                 "pass": g0_pass,
                 "details": "; ".join(g0_reasons) if g0_reasons else f"Healthy ({w}x{h} @ {fps:.1f}fps, {actual_dur:.2f}s)."
             },
             "G1_proof_readable": {
-                "pass": True,
-                "details": "Verified: primary subject occupies >= 55% frame width, text height >= 4% H."
+                "status": "manual",
+                "pass": None,
+                "details": "Not checked automatically. Review the contact sheet from scripts/generate_contact_sheet.py."
             },
             "G2_no_dead_frames": {
+                "status": "pass" if g2_pass else "fail",
                 "pass": g2_pass,
                 "details": g2_reason
             },
             "G3_end_card_discipline": {
+                "status": "pass" if g3_pass else "fail",
                 "pass": g3_pass,
                 "details": g3_reason
             },
             "G4_single_hero_focus": {
-                "pass": True,
-                "details": "Single dominant focal point maintained per beat."
+                "status": "manual",
+                "pass": None,
+                "details": "Not checked automatically. Review the contact sheet from scripts/generate_contact_sheet.py."
             },
             "G5_anti_slop_compliance": {
-                "pass": True,
-                "details": "Verified: Zero corner labels (C1), zero chapter counters (C3), zero typewriter headlines (T1)."
+                "status": "manual",
+                "pass": None,
+                "details": "Not checked automatically. Review the contact sheet from scripts/generate_contact_sheet.py."
             },
             "audio_ebu_r128": {
+                "status": audio_status,
                 "pass": audio_pass,
                 "integrated_lufs": lufs,
                 "true_peak_dbtp": tp,
                 "loudness_range_lu": lra,
-                "details": "; ".join(audio_reasons) if audio_reasons else f"Compliant: {lufs:.2f} LUFS, Peak {tp:.2f} dBTP."
+                "details": audio_details
             }
         }
     }
 
+    status_labels = {
+        "pass": "PASS",
+        "fail": "FAIL",
+        "manual": "MANUAL",
+        "not_measured": "NOT MEASURED",
+    }
+
     print("\n=== QUALITY GATES RESULTS ===")
-    all_passed = True
+    auto_passed = 0
+    auto_failed = 0
+    auto_not_measured = 0
+    manual_gates = []
     for gate_name, data in report["gates"].items():
-        status = "PASS" if data["pass"] else "FAIL"
-        if not data["pass"]: all_passed = False
-        print(f"[{status}] {gate_name}: {data['details']}")
+        st = data["status"]
+        label = status_labels[st]
+        print(f"[{label}] {gate_name}: {data['details']}")
+        if st == "pass":
+            auto_passed += 1
+        elif st == "fail":
+            auto_failed += 1
+        elif st == "not_measured":
+            auto_not_measured += 1
+        elif st == "manual":
+            manual_gates.append(gate_name)
+
+    auto_total = auto_passed + auto_failed + auto_not_measured
+    print(
+        f"\nSummary: {auto_passed}/{auto_total} automated gates passed, "
+        f"{auto_failed} failed, {auto_not_measured} not measured; "
+        f"manual review required: {', '.join(manual_gates)}."
+    )
 
     if args.out_report:
         with open(args.out_report, "w", encoding="utf-8") as f:
             json.dump(report, f, indent=2)
         print(f"\nSaved report to: {args.out_report}")
 
-    if not all_passed and args.strict:
+    if args.strict and (auto_failed > 0 or auto_not_measured > 0):
         sys.exit(3)
     sys.exit(0)
 

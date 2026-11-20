@@ -20,7 +20,7 @@ Under the **Gauntlet Protocol**:
 | **G2** | **No Dead Frames** | No run of more than 3 consecutive flat/motionless frames ($>3$ frames with mean pixel diff $< 0.25$). A scene must breathe with organic Ken Burns drift or continuous motion. | `audit_render_gates.py` (G2 block) |
 | **G3** | **End-Card Discipline** | The static, picture-unchanged hold at the end must be $\le 1.4$s (ideally $0.6$s–$1.2$s). The entire final shot must be $\le 25\%$ of total video duration. | `audit_render_gates.py` (G3 block) |
 | **G4** | **Single Hero Focus** | Exactly ONE primary focal point per beat. Two panels are permitted only if one is $\ge 2\times$ the area of the other or the camera explicitly tracks between them. | Visual inspection on contact sheet |
-| **G5** | **Anti-Slop Compliance** | Zero instances of C1–C7, D1, T1, or V1–V5 Slop patterns. | `audit_render_gates.py` / `lint.mjs` |
+| **G5** | **Anti-Slop Compliance** | Zero instances of C1–C7, D1, T1, or V1–V5 Slop patterns. | Visual inspection on contact sheet / `lint.mjs` |
 | **AUDIO** | **EBU R128 Loudness** | Integrated loudness strictly at $-14.0\text{ LUFS} \pm 1.0\text{ LU}$; True Peak $\le -1.0\text{ dBTP}$ (zero clipping on mobile/social). | `audit_render_gates.py` (ebur128) |
 
 ---

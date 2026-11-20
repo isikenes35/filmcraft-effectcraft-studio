@@ -118,7 +118,7 @@ An editor cannot self-certify an edit. All renders must pass the automated Gaunt
 | **G2** | Zero runs of $>3$ consecutive flat/motionless frames | `scripts/audit_render_gates.py` |
 | **G3** | Static end-hold $\le 1.4$s; final shot $\le 25\%$ total film | `scripts/audit_render_gates.py` |
 | **G4** | Single dominant focal point per beat | `scripts/generate_contact_sheet.py` |
-| **G5** | Zero Slop: No corner labels (C1), counters (C3), metadata (C4), deck layouts (D1), typed headlines (T1), or vibe-coded cards (V1-V5) | `scripts/audit_render_gates.py` / `lint.mjs` |
+| **G5** | Zero Slop: No corner labels (C1), counters (C3), metadata (C4), deck layouts (D1), typed headlines (T1), or vibe-coded cards (V1-V5) | `scripts/generate_contact_sheet.py` (manual review) / `lint.mjs` |
 | **AUDIO** | Integrated $-14.0\text{ LUFS} \pm 1.0$; True Peak $\le -1.0\text{ dBTP}$ | `scripts/audit_render_gates.py` |
 
 👉 Full Guide: [`references/gauntlet-critic-and-gates.md`](./references/gauntlet-critic-and-gates.md)

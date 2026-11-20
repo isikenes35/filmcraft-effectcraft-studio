@@ -17,7 +17,7 @@ FilmCraft is a timeline video editor with integer tick timing, Lumetri color gra
 - Asks the agent to use 12 easing curves (`presets/effectcraft-ease-presets.json`), 5 EffectCraft motion presets (`presets/effectcraft-motion-presets.json`), and 16 motion mechanisms (`references/measured-motion-and-mechanisms.md`), avoiding generic linear eases and scaling from zero.
 - Enforces rough-cut and voice rules: keeping the last complete take, removing spoken editor notes via `transcript.inspect`, applying parametric voice EQ, and ducking music under speech.
 - Calculates musical back-timing with `scripts/backtime_music_calc.py` so the music track's final downbeat lands on the end-card cut.
-- Checks rendered outputs with `scripts/audit_render_gates.py` (for `G0`, `G2`, `G3`, and `-14.0 LUFS` loudness) and builds a frame grid with `scripts/generate_contact_sheet.py` for visual review of `G1`, `G4`, and `G5`.
+- Checks rendered outputs with `scripts/audit_render_gates.py` (for `G0`, `G2`, `G3`, and loudness: `-14.0 LUFS` ±1 and `-1.0 dBTP` by default, other targets with `--target-lufs`) and builds a frame grid with `scripts/generate_contact_sheet.py` for visual review of `G1`, `G4`, and `G5`.
 - Documents how to import external assets from Mixkit (`.prfpset`, `.wav`), LottieFiles (`.json`, `.lottie`), Luttie/ON1 (`.cube` LUTs), and CinePacks overlays.
 
 ## Files
@@ -49,6 +49,31 @@ Required tools:
 - EffectCraft with its control bridge (`effectcraft --control 9877`) or headless (`effectcraft-cli mcp --gpu`).
 - Python 3 with `numpy`, `scipy`, and `Pillow`, plus `ffmpeg`/`ffprobe` (needed for real `audit_render_gates.py` checks; `filmcraft-cli` fallback uses a Windows path).
 
+## Test results for `audit_render_gates.py`
+
+Tested with ffmpeg 9.1 on generated clips and two real videos: a 45 s drone clip and a finished 38 s vertical music edit.
+
+| Input | Result |
+|---|---|
+| Clip at -14.5 LUFS | audio pass |
+| Clip at -16.4 LUFS | audio fail; pass with `--target-lufs -16` |
+| Clip with a +0.8 dBTP peak (drone clip with an unmastered song at -7.9 LUFS) | audio fail |
+| Drone clip with a silent audio track | audio fail |
+| Same drone clip with the song normalized | audio pass (-13.6 LUFS) |
+| Finished music edit | audio pass (-13.7 LUFS) |
+| 1 s frozen picture in the middle | G2 fail |
+| 3 s frozen end hold | G3 fail |
+| Slow drone move, finished edit | G2 and G3 pass |
+| ffmpeg not installed | G2, G3 and audio reported as `not_measured`, not as passed |
+
+These tests found and fixed four bugs:
+- Loudness was never really measured. A hard-coded value was used instead, so every render passed.
+- No frames were decoded, so G2 and G3 always passed.
+- The end hold was also counted as dead frames in G2.
+- Slow camera moves were flagged as frozen frames.
+
+`G1`, `G4` and `G5` are not checked automatically. They need a person to look at the contact sheet.
+
 ## Status
 
-A personal project, built and tested on the author's own work; no formal benchmark yet.
+A personal project, built and tested on the author's own work. The script tests above are small, and there is no formal benchmark of the skill itself.

@@ -39,6 +39,7 @@ def parse_args():
     parser.add_argument("--target-lufs", type=float, default=-14.0, help="Integrated loudness target in LUFS (default -14.0 for web/social; use -23 for EBU R128 broadcast).")
     parser.add_argument("--lufs-tolerance", type=float, default=1.0, help="Allowed distance from --target-lufs in LU (default 1.0).")
     parser.add_argument("--max-true-peak", type=float, default=-1.0, help="True peak ceiling in dBTP (default -1.0).")
+    parser.add_argument("--freeze-threshold", type=float, default=0.02, help="Mean per-pixel change (0-255 gray, 96x54) below which a frame counts as frozen (default 0.02). Truly repeated frames measure about 0.003; slow camera moves measure 0.04 and up.")
     parser.add_argument("--strict", action="store_true", help="Exit code 3 if any gate fails.")
     return parser.parse_args()
 
@@ -180,7 +181,7 @@ def main():
     # 3. Gate G3: End-Card Hold Discipline (measured first, so G2 can skip the end hold)
     trailing_frozen_frames = 0
     for d in reversed(diffs or []):
-        if d < 0.35: trailing_frozen_frames += 1
+        if d < args.freeze_threshold: trailing_frozen_frames += 1
         else: break
     end_hold_sec = trailing_frozen_frames / (fps if fps > 0 else 60.0)
     if diffs is None:
@@ -198,7 +199,7 @@ def main():
         body = diffs[1:len(diffs) - trailing_frozen_frames]  # diffs[0] is the first frame, not a change
         max_empty = cur = 0
         for d in body:
-            cur = cur + 1 if d < 0.25 else 0
+            cur = cur + 1 if d < args.freeze_threshold else 0
             max_empty = max(max_empty, cur)
         g2_pass = max_empty <= 3
         g2_reason = f"Max consecutive frozen frames before the end hold: {max_empty} (threshold: <= 3)."

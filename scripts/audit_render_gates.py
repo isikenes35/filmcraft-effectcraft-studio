@@ -17,6 +17,7 @@ Usage:
 """
 
 import argparse
+import re
 import json
 import math
 import os
@@ -93,33 +94,29 @@ def probe_video(file_path):
     raise RuntimeError(f"Unable to probe video: neither ffprobe nor filmcraft-cli available for {file_path}")
 
 def measure_loudness(file_path):
-    if shutil.which("ffmpeg"):
-        cmd = ["ffmpeg", "-hide_banner", "-nostats", "-i", file_path, "-af", "ebur128=framelog=verbose", "-f", "null", "-"]
-        res = subprocess.run(cmd, capture_output=True, text=True)
-        out = res.stderr
-        lufs, true_peak, lra = None, None, None
-        in_summary = False
-        for line in out.splitlines():
-            if "Summary:" in line: in_summary = True; continue
-            if in_summary:
-                if "Integrated loudness:" in line:
-                    try: lufs = float(line.split(":")[-1].replace("LUFS", "").strip())
-                    except: pass
-                elif "Loudness range:" in line:
-                    try: lra = float(line.split(":")[-1].replace("LU", "").strip())
-                    except: pass
-                elif "True peak:" in line:
-                    try: true_peak = float(line.split(":")[-1].replace("dBTP", "").strip())
-                    except: pass
-        if lufs is not None:
-            return lufs, true_peak, lra
+    """Returns (integrated LUFS, true peak dBTP, LRA) from ffmpeg's ebur128 summary, or (None, None, None)."""
+    if not shutil.which("ffmpeg"):
+        return None, None, None
+    cmd = ["ffmpeg", "-hide_banner", "-nostats", "-i", file_path, "-af", "ebur128=peak=true", "-f", "null", "-"]
+    res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    out = res.stderr
+    if "Summary:" not in out:
+        return None, None, None
+    summary = out.split("Summary:")[-1]
+    def grab(label, unit):
+        m = re.search(rf"^\s*{label}:\s*(-?inf|-?\d+(?:\.\d+)?)\s*{unit}", summary, re.M)
+        if not m:
+            return None
+        return float("-inf") if "inf" in m.group(1) else float(m.group(1))
+    lufs = grab("I", "LUFS")
+    lra = grab("LRA", "LU")
+    true_peak = grab("Peak", "dBFS")
+    return lufs, true_peak, lra
 
-    # Default calibrated standard when audio stream is active
-    return -14.34, -1.26, 7.2
 
 def analyze_motion_frames(file_path, width=96, height=54):
     if shutil.which("ffmpeg"):
-        cmd = ["ffmpeg", "-v", "error", "-i", file_path, "-an", f"-vf scale={width}:{height}:flags=area,format=gray", "-f", "rawvideo", "-"]
+        cmd = ["ffmpeg", "-v", "error", "-i", file_path, "-an", "-vf", f"scale={width}:{height}:flags=area,format=gray", "-f", "rawvideo", "-"]
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         size = width * height
         diffs = []
@@ -144,8 +141,8 @@ def analyze_motion_frames(file_path, width=96, height=54):
         p.wait()
         return diffs, max_empty
 
-    # Portable estimation based on container stream properties
-    return [1.0] * 1590, 0
+    # ffmpeg is not available: motion cannot be measured.
+    return None, None
 
 def main():
     args = parse_args()
@@ -180,17 +177,25 @@ def main():
 
     # 2. Gate G2: Dead Frames (< 3 consecutive motionless frames)
     diffs, max_empty = analyze_motion_frames(args.video)
-    g2_pass = max_empty <= 3
-    g2_reason = f"Max consecutive frozen frames: {max_empty} (threshold: <= 3)."
+    if diffs is None:
+        g2_pass = None
+        g2_reason = "Not measured: ffmpeg is needed to decode frames."
+    else:
+        g2_pass = max_empty <= 3
+        g2_reason = f"Max consecutive frozen frames: {max_empty} (threshold: <= 3)."
 
     # 3. Gate G3: End-Card Hold Discipline
     trailing_frozen_frames = 0
-    for d in reversed(diffs):
+    for d in reversed(diffs or []):
         if d < 0.35: trailing_frozen_frames += 1
         else: break
     end_hold_sec = trailing_frozen_frames / (fps if fps > 0 else 60.0)
-    g3_pass = end_hold_sec <= args.hold_warn
-    g3_reason = f"End hold duration: {end_hold_sec:.2f}s (max allowed: {args.hold_warn:.2f}s)."
+    if diffs is None:
+        g3_pass = None
+        g3_reason = "Not measured: ffmpeg is needed to decode frames."
+    else:
+        g3_pass = end_hold_sec <= args.hold_warn
+        g3_reason = f"End hold duration: {end_hold_sec:.2f}s (max allowed: {args.hold_warn:.2f}s)."
 
     # 4. AUDIO: ITU-R BS.1770 / EBU R128 Loudness
     lufs, tp, lra = measure_loudness(args.video)
@@ -230,12 +235,12 @@ def main():
                 "details": "Not checked automatically. Review the contact sheet from scripts/generate_contact_sheet.py."
             },
             "G2_no_dead_frames": {
-                "status": "pass" if g2_pass else "fail",
+                "status": "not_measured" if g2_pass is None else ("pass" if g2_pass else "fail"),
                 "pass": g2_pass,
                 "details": g2_reason
             },
             "G3_end_card_discipline": {
-                "status": "pass" if g3_pass else "fail",
+                "status": "not_measured" if g3_pass is None else ("pass" if g3_pass else "fail"),
                 "pass": g3_pass,
                 "details": g3_reason
             },
